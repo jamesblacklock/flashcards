@@ -4,7 +4,7 @@ declare global {
       key?: any;
     }
     interface IntrinsicElements {
-      [key: string]: IntrinsicAttributes & HtmlTagComponentProps<any>;
+      [key: string]: IntrinsicAttributes & HtmlComponentProps<any>;
     }
   }
 }
@@ -13,7 +13,7 @@ type SetterOptions = { dirty?: boolean, quiet?: boolean };
 type Setter<T> = (value: T, options?: SetterOptions) => void
 
 export class State {
-  component?: UINode;
+  component?: Component;
   target?: HTMLElement;
   dirty: boolean = false;
   private state: Record<keyof any, any> = {};
@@ -109,20 +109,52 @@ export class State {
 
 export type DebugInfo = { renderCount: number, debug?: boolean };
 export type Props = Record<keyof any, any>;
-
-export type UINodeFunction = <T extends Props>(props: T, state: State, debugInfo: DebugInfo) => UINode[];
-
-export type UINode<T extends Props = Props> = {
-  type: UINodeFunction | string;
+export type UIElement<T extends Props = Props> = {
+  type: ComponentFunction<T> | string;
   props?: T;
-  content?: UINode | UINode[];
+  content?: UINode;
+  key?: any;
+};
+export type UINode = UINode[] | UIElement | UIElement[] | string | number | false | null | undefined;
+
+function isElement(a: any): a is UIElement {
+  return "type" in a && (a.type instanceof Function || typeof a.type === "string")
+}
+
+function uiNodeToComponentArray(uiNode: UINode): Component[] {
+  if (Array.isArray(uiNode)) {
+    const components = [];
+    for (const n of uiNode) {
+      components.push(...uiNodeToComponentArray(n));
+    }
+    return components;
+  }
+  if (uiNode == false || uiNode === null || uiNode === undefined) {
+    return [];
+  }
+  if (typeof uiNode === "string" || typeof uiNode === "number") {
+    return [{ type: "TEXT", props: { textContent: uiNode.toString() } }];
+  }
+  if (isElement(uiNode)) {
+    return [{ ...uiNode, content: uiNodeToComponentArray(uiNode.content) }];
+  }
+  console.warn("invalid UINode", uiNode);
+  return [];
+}
+
+export type ComponentFunction<T extends Props = Props> = (props: T, state: State, debugInfo: DebugInfo) => UINode;
+
+export type Component<T extends Props = Props> = {
+  type: ComponentFunction<T> | string;
+  props?: T;
+  content?: Component[];
   key?: any;
 };
 
 type VNode = {
   r?: Symbol;
   cc: number;
-  component: UINode;
+  component: Component;
   nodes: VNode[];
   domNode?: Text|HTMLElement;
   domParent: HTMLElement;
@@ -152,7 +184,7 @@ function propsNotEqual(l: Props | undefined, r: Props | undefined, depth: number
   return false;
 }
 
-function contentNotEqual(l?: UINode, r?: UINode) {
+function contentNotEqual(l?: Component, r?: Component) {
   if (l?.type !== r?.type) {
     return true;
   } else if (propsNotEqual(l?.props, r?.props, 1)) {
@@ -174,7 +206,7 @@ function contentNotEqual(l?: UINode, r?: UINode) {
   return false;
 }
 
-function nodeChanged(node: VNode, component: UINode) {
+function nodeChanged(node: VNode, component: Component) {
   if (node.cc === 0 || contentNotEqual(node.component, component)) {
     node.cc++;
     return true;
@@ -182,7 +214,7 @@ function nodeChanged(node: VNode, component: UINode) {
   return false;
 }
 
-function getNode(parentNode: VNode, component: UINode, renderedNodes: VNode[]): VNode {
+function getNode(parentNode: VNode, component: Component, renderedNodes: VNode[]): VNode {
   let node = parentNode.nodes.find(node =>
     node.component.key === component.key && node.component.type === component.type && node.r !== parentNode.r
   );
@@ -230,7 +262,7 @@ function removeNode(node: VNode) {
   node.nodes.forEach(removeNode);
 }
 
-function renderChildren(state: RenderState, parent: VNode, children: UINode | UINode[] | undefined, renderedNodes: VNode[]) {
+function renderChildren(state: RenderState, parent: VNode, children: Component[], renderedNodes: VNode[]) {
   if (!children) {
     return;
   }
@@ -254,7 +286,7 @@ type RenderState = {
   options: RenderOptions;
 }
 
-function renderInternal(state: RenderState, node: VNode, component: UINode) {
+function renderInternal(state: RenderState, node: VNode, component: Component) {
   node.r = state.r;
   const renderedNodes: VNode[] = [];
   if (component.type === "TEXT") {
@@ -265,28 +297,25 @@ function renderInternal(state: RenderState, node: VNode, component: UINode) {
     if (textContent !== node.domNode.textContent) {
       node.domNode.textContent = textContent;
     }
-  } else if (typeof component.type === "string") {
-    if (!node.domNode) {
+  } else {
+    if (typeof component.type === "string" && !node.domNode) {
       node.domNode = document.createElement(component.type);
     }
     if (!node.state) {
       node.state = new State(node, state.options);
+      node.state!.component = component;
     }
-    node.state!.component = component;
-    const e = node.domNode as HTMLElement;
     if (node.state!.dirty || nodeChanged(node, component)) {
       node.state!.dirty = false;
-      HtmlTagComponent(component.props ?? {}, node.state!, e, { debug: state.options?.debug, renderCount: node.cc });
-      renderChildren(state, node, component.content, renderedNodes);
-    }
-  } else {
-    if (!node.state) {
-      node.state = new State(node, state.options);
-    }
-    node.state!.component = component;
-    if (node.state!.dirty || nodeChanged(node, component)) {
-      node.state!.dirty = false;
-      component.content = component.type({content: component.content, ...component.props}, node.state!, { debug: state.options?.debug, renderCount: node.cc });
+      let componentFactory: ComponentFunction = typeof component.type === "string"
+        ? htmlComponent.bind(null, node.domNode as HTMLElement) as ComponentFunction
+        : component.type;
+      const renderedContent = componentFactory(
+        {content: component.content, ...component.props},
+        node.state!,
+        { debug: state.options?.debug, renderCount: node.cc }
+      );
+      component.content = uiNodeToComponentArray(renderedContent);
       renderChildren(state, node, component.content, renderedNodes);
     }
   }
@@ -301,43 +330,24 @@ function renderInternal(state: RenderState, node: VNode, component: UINode) {
   node.component = component;
 }
 
-function flattenContent(content: UINode[]): UINode[] {
-  const flattened = [];
-  for (const c of content) {
-    if (Array.isArray(c)) {
-      flattened.push(...flattenContent(c));
-    } else if (typeof c === "string") {
-      flattened.push({ type: "TEXT", props: { textContent: c } });
-    } else {
-      flattened.push(c);
-    }
-  }
-  return flattened;
-}
-
-renderUI.fragment = () => null as unknown as UINode[];
+renderUI.fragment = () => null as unknown as Component[];
 renderUI.createElement = function<P extends {}>(
-  type: string | UINodeFunction,
+  type: string | ComponentFunction,
   props: P & { key?: any } | null, 
-  ...children: UINode[]
-): UINode | UINode[] {
+  ...content: UINode[]
+): UINode {
   const { key, ...restProps } = props ?? {};
   if (type === renderUI.fragment) {
-    return flattenContent(children);
+    return content;
   }
-  return {
-    type,
-    key,
-    props: restProps,
-    content: flattenContent(children),
-  };
+  return { type, key, props: restProps, content };
 }
 
 export type RenderOptions = {
   debug?: boolean;
 };
 
-export default function renderUI(domTarget: HTMLElement, component: UINode, options: RenderOptions = {}) {
+export default function renderUI(domTarget: HTMLElement, component: Component, options: RenderOptions = {}) {
   let node = DOM_ROOTS.get(domTarget);
   if (!node) {
     node = { cc: 0, component: { type: component.type, key: component.key }, nodes: [], domParent: domTarget };
@@ -353,18 +363,19 @@ export type RefFunction<T = any> = ((current: T) => void)
 export type Ref<T = any> = RefObject<T> | RefFunction<T>;
 type EventsMap = Partial<Record<keyof HTMLElementEventMap, EventListenerOrEventListenerObject>>;
 type StyleMap = Partial<Record<keyof CSSStyleDeclaration, string | number>>;
-type HtmlTagComponentProps<T extends keyof HTMLElementTagNameMap> = {
+type HtmlComponentProps<T extends keyof HTMLElementTagNameMap> = {
   class?: string;
   className?: string;
   events?: EventsMap;
   style?: StyleMap;
   id?: string;
   ref?: Ref<HTMLElementTagNameMap[T]>;
+  content?: UINode;
 };
-function HtmlTagComponent<T extends keyof HTMLElementTagNameMap>(
-  props: HtmlTagComponentProps<T>,
-  state: State,
+function htmlComponent<T extends keyof HTMLElementTagNameMap>(
   e: HTMLElementTagNameMap[T],
+  props: HtmlComponentProps<T>,
+  state: State,
   debugInfo: DebugInfo,
 ) {
   const { events = {}, style, id, ref, className } = props;
@@ -414,5 +425,5 @@ function HtmlTagComponent<T extends keyof HTMLElementTagNameMap>(
     e.setAttribute("data-render-count", debugInfo.renderCount.toString());
   }
 
-  return e;
+  return props.content;
 }
