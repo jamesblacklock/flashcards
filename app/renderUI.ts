@@ -262,25 +262,6 @@ function removeNode(node: VNode) {
   node.nodes.forEach(removeNode);
 }
 
-function renderChildren(state: RenderState, parent: VNode, children: Component[], renderedNodes: VNode[]) {
-  if (!children) {
-    return;
-  }
-  if (!Array.isArray(children)) {
-    children = [children];
-  }
-  for (const childComponent of children) {
-    if (Array.isArray(childComponent)) {
-      renderChildren(state, parent, childComponent, renderedNodes);
-      continue;
-    }
-    const childNode = getNode(parent, childComponent, renderedNodes);
-    if (nodeChanged(childNode, childComponent)) {
-      renderInternal(state, childNode, childComponent);
-    }
-  }
-}
-
 type RenderState = {
   r: Symbol;
   options: RenderOptions;
@@ -316,7 +297,12 @@ function renderInternal(state: RenderState, node: VNode, component: Component) {
         { debug: state.options?.debug, renderCount: node.cc }
       );
       component.content = uiNodeToComponentArray(renderedContent);
-      renderChildren(state, node, component.content, renderedNodes);
+      for (const childComponent of component.content) {
+        const childNode = getNode(node, childComponent, renderedNodes);
+        if (nodeChanged(childNode, childComponent)) {
+          renderInternal(state, childNode, childComponent);
+        }
+      }
     }
   }
 
