@@ -10,13 +10,13 @@ import type {
   StyleMap,
 } from "./htmlTypes";
 
-function mapValues<
-  In extends Readonly<Record<string, In[string]>>,
-  Out extends Record<keyof In, OutField>,
-  OutField
->(record: In, f: <K extends keyof In>(entry: In[K]) => OutField): Out {
-  return Object.fromEntries(Object.entries(record).map(entry => [entry[0], f(entry[1])])) as Out;
-}
+// function mapValues<
+//   In extends Readonly<Record<string, In[string]>>,
+//   Out extends Record<keyof In, OutField>,
+//   OutField
+// >(record: In, f: <K extends keyof In>(entry: In[K]) => OutField): Out {
+//   return Object.fromEntries(Object.entries(record).map(entry => [entry[0], f(entry[1])])) as Out;
+// }
 
 type AnyRecord = Record<keyof any, any>;
 
@@ -212,7 +212,7 @@ class ComponentSystem {
     const data: ForeachData<T> = {
       itemName,
       indexName,
-      context: { init: false, bindings: {} },
+      context: { /*init: false,*/ bindings: {} },
       componentContext,
       items: [],
     };
@@ -699,7 +699,7 @@ type IfProps = { cond: boolean };
 type ForeachProps<T> = { items: Iterable<T> };
 
 type ForeachContext = {
-  init: boolean;
+  // init: boolean;
   bindings: {
     [key: string]: {
       items: any[];
@@ -710,7 +710,7 @@ type ForeachContext = {
 };
 
 function cloneForeachContext(context: ForeachContext, itemName?: string, index?: number) {
-  const result: ForeachContext = { init: index != null, bindings: {} };
+  const result: ForeachContext = { /*init: index != null,*/ bindings: {} };
   for (const name in context.bindings) {
     result.bindings[name] = { ...context.bindings[name] };
   }

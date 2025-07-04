@@ -88,7 +88,7 @@ type FlashCardsState = {
 
 export const FlashCards: ComponentConfig<FlashCardsProps, FlashCardsState> = {
   name: "FlashCards",
-  props: { cards: [], name: "", chooseDeck: () => null, saveDeck: () => null},
+  props: { cards: [], name: "", chooseDeck: () => null, saveDeck: () => null },
   state: {
     nextRoundCards: [],
     currentCards: [],

@@ -1,0 +1,3 @@
+[workspace]
+resolver = "3"
+members = ["rust/jazz", "rust/jazz_template", "rust/pkg_web"]
